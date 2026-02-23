@@ -10,6 +10,7 @@ MODEL_DIR="${HOME}/.local/share/whisper/models"
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
 PIDFILE="${RUNTIME_DIR}/omarchy-cmd-dictate.pid"
 AUDIOFILE="${RUNTIME_DIR}/omarchy-cmd-dictate.wav"
+TEXTFILE="${RUNTIME_DIR}/omarchy-cmd-dictate.txt"
 
 HF_BASE="https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
 
@@ -69,16 +70,51 @@ stop_and_transcribe() {
   text=$(whisper-cli -m "$model" -l auto -nt -np -f "$AUDIOFILE" 2>/dev/null)
   rm -f "$AUDIOFILE"
 
-  # Trim whitespace
-  text=$(echo "$text" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  # Trim all leading/trailing whitespace including newlines
+  text="${text#"${text%%[![:space:]]*}"}"
+  text="${text%"${text##*[![:space:]]}"}"
+
+  # Replace spoken punctuation with symbols (DE + EN)
+  text=$(echo "$text" | sed -E \
+    -e 's/ [Kk]omma/,/g' \
+    -e 's/ [Pp]unkt([^a-zA-ZäöüÄÖÜ]|$)/.\1/g' \
+    -e 's/ [Aa]usrufezeichen/!/g' \
+    -e 's/ [Ff]ragezeichen/?/g' \
+    -e 's/ [Dd]oppelpunkt/:/g' \
+    -e 's/ [Ss]emikolon/;/g' \
+    -e 's/ [Bb]indestrich/-/g' \
+    -e 's/ [Gg]edankenstrich/ —/g' \
+    -e 's/ [Aa]nführungszeichen auf/"/g' \
+    -e 's/ [Aa]nführungszeichen zu/"/g' \
+    -e 's/ [Kk]lammer auf/(/g' \
+    -e 's/ [Kk]lammer zu/)/g' \
+    -e 's/ [Nn]eue [Zz]eile/\n/g' \
+    -e 's/ [Nn]euer [Aa]bsatz/\n\n/g' \
+    -e 's/ [Cc]omma/,/g' \
+    -e 's/ [Pp]eriod([^a-zA-Z]|$)/.\1/g' \
+    -e 's/ [Ff]ull [Ss]top/./g' \
+    -e 's/ [Ee]xclamation [Mm]ark/!/g' \
+    -e 's/ [Qq]uestion [Mm]ark/?/g' \
+    -e 's/ [Cc]olon/:/g' \
+    -e 's/ [Ss]emicolon/;/g' \
+    -e 's/ [Nn]ew [Ll]ine/\n/g' \
+    -e 's/ [Nn]ew [Pp]aragraph/\n\n/g' \
+  )
 
   if [[ -z "$text" ]]; then
     notify-send -t 2000 "Dictate" "No speech recognized"
     return 0
   fi
 
-  wtype -- "$text"
-  notify-send -t 2000 "Dictate" "$(echo "$text" | head -c 200)"
+  echo -n "$text" | wl-copy
+  echo -n "$text" > "$TEXTFILE"
+  notify-send -t 3000 "Dictate" "Copied — press again to type:\n$(echo "$text" | head -c 200)"
+}
+
+paste_text() {
+  rm -f "$TEXTFILE"
+  wtype -M ctrl v -m ctrl
+  notify-send -t 2000 "Dictate" "Pasted"
 }
 
 start_recording() {
@@ -108,10 +144,12 @@ if ! command -v wtype &>/dev/null; then
   exit 1
 fi
 
-# --- Toggle ---
+# --- Toggle (3 states: idle → recording → ready → idle) ---
 
 if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
   stop_and_transcribe
+elif [[ -f "$TEXTFILE" ]]; then
+  paste_text
 else
   rm -f "$PIDFILE"
   start_recording

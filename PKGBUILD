@@ -1,14 +1,14 @@
 # Maintainer: emmgee
 pkgname=omarchy-cmd-dictate
-pkgver=1.0.0
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Voice-to-text dictation for Hyprland — press to record, press again to transcribe and type"
 arch=(any)
 url="https://github.com/emmgeede/omarchy-cmd-dictate"
 license=(MIT)
-depends=(whisper.cpp pipewire wtype libnotify)
+depends=(whisper.cpp pipewire wtype wl-clipboard libnotify)
 source=("$pkgname-$pkgver.tar.gz::https://github.com/emmgeede/omarchy-cmd-dictate/archive/v$pkgver.tar.gz")
-sha256sums=('66775d13e06b653c3a0d37db51111a139af40e268fbe39aa2d7f2a491894b302')
+sha256sums=('SKIP')
 
 package() {
   cd "$pkgname-$pkgver"
