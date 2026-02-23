@@ -8,7 +8,7 @@ url="https://github.com/emmgeede/omarchy-cmd-dictate"
 license=(MIT)
 depends=(whisper.cpp pipewire wtype libnotify)
 source=("$pkgname-$pkgver.tar.gz::https://github.com/emmgeede/omarchy-cmd-dictate/archive/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('66775d13e06b653c3a0d37db51111a139af40e268fbe39aa2d7f2a491894b302')
 
 package() {
   cd "$pkgname-$pkgver"
