@@ -1,0 +1,118 @@
+#!/bin/bash
+
+# Voice-to-text dictation for Hyprland — press once to record, again to transcribe + type.
+# Uses whisper.cpp for offline speech recognition with automatic language detection.
+#
+# Usage: omarchy-cmd-dictate                  Toggle recording / transcribe
+#        omarchy-cmd-dictate download-model [SIZE]  Download whisper model (tiny|base|small, default: base)
+
+MODEL_DIR="${HOME}/.local/share/whisper/models"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+PIDFILE="${RUNTIME_DIR}/omarchy-cmd-dictate.pid"
+AUDIOFILE="${RUNTIME_DIR}/omarchy-cmd-dictate.wav"
+
+HF_BASE="https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
+
+download_model() {
+  local size="${1:-base}"
+
+  case "$size" in
+    tiny)  local file="ggml-tiny.bin" ;;
+    base)  local file="ggml-base.bin" ;;
+    small) local file="ggml-small.bin" ;;
+    *)
+      echo "Supported sizes: tiny, base, small (default: base)"
+      exit 1
+      ;;
+  esac
+
+  mkdir -p "$MODEL_DIR"
+  local dest="${MODEL_DIR}/${file}"
+
+  if [[ -f "$dest" ]]; then
+    echo "Model already exists: $dest"
+    return 0
+  fi
+
+  echo "Downloading ${file}..."
+  curl -L --progress-bar -o "$dest" "${HF_BASE}/${file}"
+  echo "Saved to $dest"
+}
+
+find_model() {
+  # Prefer base > small > tiny
+  for size in base small tiny; do
+    local path="${MODEL_DIR}/ggml-${size}.bin"
+    [[ -f "$path" ]] && echo "$path" && return 0
+  done
+  return 1
+}
+
+stop_and_transcribe() {
+  local pid
+  pid=$(cat "$PIDFILE")
+  kill "$pid" 2>/dev/null
+  wait "$pid" 2>/dev/null
+  rm -f "$PIDFILE"
+
+  notify-send -t 2000 "Dictate" "Transcribing..."
+
+  local model
+  model=$(find_model)
+  if [[ -z "$model" ]]; then
+    notify-send -t 3000 "Dictate" "No model found — run: omarchy-cmd-dictate download-model"
+    rm -f "$AUDIOFILE"
+    return 1
+  fi
+
+  local text
+  text=$(whisper-cli -m "$model" -l auto -nt -np -f "$AUDIOFILE" 2>/dev/null)
+  rm -f "$AUDIOFILE"
+
+  # Trim whitespace
+  text=$(echo "$text" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+  if [[ -z "$text" ]]; then
+    notify-send -t 2000 "Dictate" "No speech recognized"
+    return 0
+  fi
+
+  wtype -- "$text"
+  notify-send -t 2000 "Dictate" "$(echo "$text" | head -c 200)"
+}
+
+start_recording() {
+  rm -f "$AUDIOFILE"
+  pw-record --rate 16000 --channels 1 --format s16 "$AUDIOFILE" &
+  echo $! > "$PIDFILE"
+  disown
+  notify-send -t 2000 "Dictate" "Recording..."
+}
+
+# --- Subcommands ---
+
+if [[ "${1:-}" == "download-model" ]]; then
+  download_model "${2:-base}"
+  exit 0
+fi
+
+# --- Dependency check ---
+
+if ! command -v whisper-cli &>/dev/null; then
+  notify-send -t 3000 "Dictate" "whisper-cli is not installed (pacman: whisper.cpp)"
+  exit 1
+fi
+
+if ! command -v wtype &>/dev/null; then
+  notify-send -t 3000 "Dictate" "wtype is not installed"
+  exit 1
+fi
+
+# --- Toggle ---
+
+if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+  stop_and_transcribe
+else
+  rm -f "$PIDFILE"
+  start_recording
+fi
